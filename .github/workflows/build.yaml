@@ -1,0 +1,111 @@
+name: Build
+
+on:
+  schedule:
+    - cron: 0 6 * * 1 # At 06:00 on Monday.
+  workflow_dispatch:
+
+env:
+  ASIOSDK_URL: https://www.steinberg.net/asiosdk
+  ASIOSDK_DIR: c:\asiosdk
+
+  BUILD_TYPE: "RelWithDebInfo"
+  CONFIGURATION_TYPES: "RelWithDebInfo"
+  CONFIGURE_CMAKE_OPTIONS: |
+    -Daudacity_has_url_schemes_support=On
+    -Daudacity_has_audiocom_upload=On
+    -Daudacity_has_asio_support=On
+  BUILD_LEVEL: "beta"
+
+jobs:
+  get_release:
+    name: Get Audacity release
+    runs-on: ubuntu-latest
+    outputs:
+      download_url: ${{ steps.getRelease.outputs.download_url }}
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Get release
+        id: getRelease
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm install
+          npm run getRelease
+      - name: Upload Release Data
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.getRelease.outputs.releaseArtifactName }}
+          path: ${{ steps.getRelease.outputs.releaseArtifactName }}.json
+
+  build_windows:
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
+    needs: get_release
+    if: needs.get_release.outputs.download_url != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: Windows MSVC 2022 (x86)
+            os: windows-2022
+            arch: x32
+            generator: Visual Studio 17 2022
+            postfix: "-msvc2022"
+            windows_sdk: "10.0.22000.0"
+          - name: Windows MSVC 2022 (x86_64)
+            os: windows-2022
+            arch: x64
+            generator: Visual Studio 17 2022
+            postfix: "-msvc2022"
+            windows_sdk: "10.0.22000.0"
+    steps:
+      - name: Install wget
+        run: choco install wget --no-progress
+      - name: Download asio sdk
+        shell: bash
+        run: |
+          wget "${ASIOSDK_URL}" -O asiosdk.zip -q
+          7z x asiosdk.zip
+          rm asiosdk.zip
+          mv asiosdk* "${ASIOSDK_DIR}"
+      - name: Download source
+        shell: bash
+        run: |
+          wget "${{ needs.get_release.outputs.download_url }}" -O release.zip -q
+          7z x release.zip
+          rm release.zip
+          mv audacity-audacity-*/* .
+
+      - name: Setup Dependencies
+        uses: audacity/audacity-actions/dependencies@v2
+        with:
+          force_gcc11: ${{ matrix.config.force_gcc11 }}
+      - name: Configure
+        uses: audacity/audacity-actions/configure@v2
+        with:
+          generator: ${{ matrix.config.generator }}
+          arch: ${{ matrix.config.arch }}
+          build_type: ${{ env.BUILD_TYPE }}
+          configuration_types: ${{ env.CONFIGURATION_TYPES }}
+          build_level: ${{ env.BUILD_LEVEL }}
+          cmake_options: |
+            ${{ env.CONFIGURE_CMAKE_OPTIONS }}
+            -DCMAKE_SYSTEM_VERSION=${{ matrix.config.windows_sdk }}
+      - name: Build
+        uses: audacity/audacity-actions/build@v2
+      - name: Test
+        shell: pwsh
+        run: |
+          pushd .build.${{ matrix.config.arch }}
+          ctest -C ${{ env.BUILD_TYPE }} --verbose
+          popd
+      - name: Package
+        uses: audacity/audacity-actions/package@v2
+        with:
+          postfix: ${{ matrix.config.postfix }}
