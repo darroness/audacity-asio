@@ -3,8 +3,7 @@
 Automatic unofficial builds of [Audacity](https://github.com/audacity/audacity) with ASIO support.
 
 <a href="https://github.com/darroness/audacity-asio/releases/latest">
-    Download latest version<br><br>
-    <img src="https://img.shields.io/github/v/release/darroness/audacity-asio">
+    <img alt="GitHub Release" src="https://img.shields.io/github/v/release/darroness/audacity-asio?display_name=release&label=Download&cacheSeconds=3600">
 </a>
 
 ---
